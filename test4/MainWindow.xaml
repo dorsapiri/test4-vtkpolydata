@@ -8,8 +8,8 @@
         mc:Ignorable="d"
         Title="MainWindow" Height="450" Width="800">
     <Grid>
-        <WindowsFormsHost Loaded="WindowsFormsHost_Loaded">
-            <vtk:RenderWindowControl x:Name="vRWC"/>
+        <WindowsFormsHost Loaded="WindowsFormsHost_Loaded" KeyDown="MainWindow_KeyDown" KeyUp="MainWindow_KeyUp">
+            <vtk:RenderWindowControl x:Name="vRWC" />
         </WindowsFormsHost>
     </Grid>
 </Window>
