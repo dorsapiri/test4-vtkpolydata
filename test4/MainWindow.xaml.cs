@@ -48,7 +48,10 @@ namespace test4
 
             //DicomContour();
             //DrowSkinPolygon();
-            CuttingDicom();
+            //CuttingDicom();
+            string fileName = @"D:\DicomImages\A990410-BREAST\Study_1\CT_RAZEH GOUKEH^OZRA_S1_076.dcm";
+            fitContourTest(fileName);
+            //cropedDicomes();
 
             /*ReadDICOMSeries();
             KeyDown += MainWindow_KeyDown;
@@ -101,7 +104,6 @@ namespace test4
             actor.SetMapper(polyDataMapper);
             
             
-
             vtkImageViewer2 imageViewer = vtkImageViewer2.New();
             //imageViewer.SetInputData(DicomImageReader.GetOutput());
             imageViewer.GetRenderer().AddActor(actor);
@@ -109,10 +111,6 @@ namespace test4
             imageViewer.SetInputData(imageMapToWindowLevelColors.GetOutput());
             imageViewer.SetRenderWindow(vRWC.RenderWindow);
             imageViewer.Render();
-
-            
-
-            
 
             //vRWC.RenderWindow.GetRenderers().GetFirstRenderer().AddActor(polyActor);
             //vRWC.RenderWindow.GetRenderers().GetFirstRenderer().SetBackground(0.1, 0.2, 0.4);
@@ -176,16 +174,7 @@ namespace test4
         {
             vtkDICOMImageReader DicomImage = new vtkDICOMImageReader();
             DicomImage.SetFileName(@"D:\DicomImages\A990410-BREAST\Study_1\CT_RAZEH GOUKEH^OZRA_S1_076.dcm");
-            //DicomImageReader.SetDirectoryName(@"D:\DicomImages\A990410-BREAST\Study_1");
             DicomImage.Update();
-
-            /*vtkImageData imageData = DicomImage.GetOutput();
-
-            vtkContourFilter contourFilter = new vtkContourFilter();
-            contourFilter.SetInputData(DicomImage.GetOutput());
-
-            vtkPolyData contourPolyData = contourFilter.GetOutput();
-            contourFilter.Update();*/
 
             vtkImageViewer2 dicomViewer = new vtkImageViewer2();
             
@@ -205,6 +194,7 @@ namespace test4
             var yCenter = (yMax - yMin) / 2;
             var diffCenterX = imageCenter[0] - xCenter;
             var diffCenterY = imageCenter[1] - yCenter;
+            
             //VtkPoints add Contour Points 
             vtkPoints curvePoints = new vtkPoints();
             foreach (var point in slice1)
@@ -271,6 +261,315 @@ namespace test4
             
         }
 
+        public void fitContourTest( string fileName)
+        {
+            vtkDICOMImageReader dicom = new vtkDICOMImageReader();
+            dicom.SetFileName(fileName);
+            dicom.Update();
+
+            
+            vtkContourFilter contourFilter = new vtkContourFilter();
+            contourFilter.SetInputData(dicom.GetOutput());
+
+
+            vtkImageMapToWindowLevelColors imageMapToWindowLevelColors = new vtkImageMapToWindowLevelColors();
+            imageMapToWindowLevelColors.SetWindow(255);
+            imageMapToWindowLevelColors.SetLevel(127.5);
+
+            
+            vtkImageViewer2 imageViewer = new vtkImageViewer2();
+            /*imageViewer.SetInputData(dicom.GetOutput());
+            imageViewer.GetSliceRange(ref _MinSlice, ref _MaxSlice);
+            _Slice = _MinSlice;
+            for (int i = 0; i <= _MaxSlice; i++)
+            {
+                _Slice++;
+                imageViewer.SetSlice(_Slice);
+            }*/
+
+            var contourCenter = getContours(dicom).GetOutput().GetCenter();
+
+            vtkPolyDataMapper polyDataMapper = vtkPolyDataMapper.New();
+            polyDataMapper.SetInputConnection(contourFilter.GetOutputPort());
+
+            vtkActor contourActor = new vtkActor();
+            contourActor.SetMapper(polyDataMapper);
+
+            
+
+            vtkPolyDataMapper curveMapper = new vtkPolyDataMapper();
+            curveMapper.SetInputData(RtStructCountor(contourCenter));
+
+            vtkActor curveActor = new vtkActor();
+            curveActor.SetMapper(curveMapper);
+
+            int[] regionOfIntrest = getPolydataRange(RtStructCountor(contourCenter));
+
+            // Create a region of interest filter
+            vtkExtractVOI roiFilter = vtkExtractVOI.New();
+            roiFilter.SetInputConnection(dicom.GetOutputPort());
+            roiFilter.SetVOI(regionOfIntrest[0], regionOfIntrest[0] + regionOfIntrest[2] - 1, 
+                regionOfIntrest[1], regionOfIntrest[1] + regionOfIntrest[3] - 1, 0, 0);
+            roiFilter.Update();
+
+            vtkImageActor roaImageActor = new vtkImageActor();
+            roaImageActor.SetInputData(roiFilter.GetOutput());
+
+            /*vtkPolyDataMapper cleanPoly = new vtkPolyDataMapper();
+            cleanPoly.SetInputData(getContours().GetOutput());
+
+            vtkActor cleanpolyActor = new vtkActor();
+            cleanpolyActor.SetMapper(cleanPoly);*/
+
+            
+            imageViewer.SetRenderWindow(vRWC.RenderWindow); 
+            imageViewer.GetRenderer().AddActor(roaImageActor);//Croped one picture
+            imageViewer.SetInputData(imageMapToWindowLevelColors.GetOutput());
+            //imageViewer.GetRenderer().AddActor(cleanpolyActor);//main contour
+            //imageViewer.GetRenderer().AddActor2D(contourActor);
+            /*imageViewer.GetRenderer().AddActor(curveActor);//skin polyline 
+            imageViewer.SetInputData(dicom.GetOutput());//original Image
+            vtkRenderWindowInteractor renderWindowInteractor = vtkRenderWindowInteractor.New();
+            imageViewer.SetupInteractor(renderWindowInteractor);*/
+            imageViewer.Render();
+        }
+
+        public vtkPolyData RtStructCountor(double[] imageCenter)
+        {
+            //Contour Points in RT-Structure
+            Read_Struct dicomRT = new Read_Struct();
+            var RTstructs = dicomRT.GetStructList(@"D:\DicomImages\A990410-BREAST\Study_1\RAZEH GOUKEH^OZRA__RTS.dcm");
+            var skin = RTstructs.First(x => x.Key.Equals("Skin")).Value;
+            var slice1 = skin.SliceContours[0].ContourPoints;
+            var zCoordination = skin.SliceContours[0].Z;
+            var xMin = slice1.Min(p => p.X);
+            var xMax = slice1.Max(p => p.X);
+            var yMin = slice1.Min(p => p.Y);
+            var yMax = slice1.Max(p => p.Y);
+            var xCenter = ((xMax - xMin) / 2) -1;
+            var yCenter = ((yMax - yMin) / 2) -1;
+            var diffCenterX = imageCenter[0] - xCenter -1;
+            var diffCenterY = imageCenter[1] - yCenter - 1;
+
+            //VtkPoints add Contour Points 
+            vtkPoints curvePoints = new vtkPoints();
+            foreach (var point in slice1)
+            {
+                var x = point.X - xMin + diffCenterX -1;
+                var y =point.Y - yMin + diffCenterY -1;
+                curvePoints.InsertNextPoint(x, y, -376);
+            }
+
+            vtkCellArray curveCells = new vtkCellArray();
+            var lastPid = slice1.IndexOf(slice1.Last());
+            curveCells.InsertNextCell(lastPid);
+            for (var point = 0; point < lastPid; point++)
+            {
+                curveCells.InsertCellPoint(point);
+            }
+
+            vtkPolyData polyData = new vtkPolyData();
+            polyData.SetPoints(curvePoints);
+            //polyData.SetPolys(curveCells);
+            polyData.SetLines(curveCells);
+
+            double[] curveCenter = polyData.GetCenter();
+
+            vtkTransform transform = new vtkTransform();
+            //transform.Translate(-curveCenter[0], -curveCenter[1], -curveCenter[2]);
+            transform.RotateX(180);
+            transform.Translate(0, -2*curveCenter[1], 0);
+            /*transform.RotateY(180);
+            transform.Translate( -2 * curveCenter[0], 0, 0);*/
+
+            vtkTransformPolyDataFilter polylineTransform = new vtkTransformPolyDataFilter();
+            polylineTransform.SetInputData(polyData);
+            polylineTransform.SetTransform(transform);
+            polylineTransform.Update();
+
+            vtkPolyData TransformedPolyline = polylineTransform.GetOutput();
+
+            curveCenter = TransformedPolyline.GetCenter();
+
+            return TransformedPolyline;
+        }
+        public vtkPolyData RtStructCountor(double[] imageCenter , int sliceNumber)
+        {
+            //Contour Points in RT-Structure
+            Read_Struct dicomRT = new Read_Struct();
+            var RTstructs = dicomRT.GetStructList(@"D:\DicomImages\A990410-BREAST\Study_1\RAZEH GOUKEH^OZRA__RTS.dcm");
+            var skin = RTstructs.First(x => x.Key.Equals("Skin")).Value;
+            var slice1 = skin.SliceContours[99-sliceNumber].ContourPoints;
+            var zCoordination = skin.SliceContours[0].Z;
+            var xMin = slice1.Min(p => p.X);
+            var xMax = slice1.Max(p => p.X);
+            var yMin = slice1.Min(p => p.Y);
+            var yMax = slice1.Max(p => p.Y);
+            var xCenter = ((xMax - xMin) / 2) - 1;
+            var yCenter = ((yMax - yMin) / 2) - 1;
+            var diffCenterX = imageCenter[0] - xCenter - 1;
+            var diffCenterY = imageCenter[1] - yCenter - 1;
+
+            //VtkPoints add Contour Points 
+            vtkPoints curvePoints = new vtkPoints();
+            foreach (var point in slice1)
+            {
+                var x = point.X - xMin + diffCenterX - 1;
+                var y = point.Y - yMin + diffCenterY - 1;
+                curvePoints.InsertNextPoint(x, y, -376);
+            }
+
+            vtkCellArray curveCells = new vtkCellArray();
+            var lastPid = slice1.IndexOf(slice1.Last());
+            curveCells.InsertNextCell(lastPid);
+            for (var point = 0; point < lastPid; point++)
+            {
+                curveCells.InsertCellPoint(point);
+            }
+
+            vtkPolyData polyData = new vtkPolyData();
+            polyData.SetPoints(curvePoints);
+            //polyData.SetPolys(curveCells);
+            polyData.SetLines(curveCells);
+
+            double[] curveCenter = polyData.GetCenter();
+
+            vtkTransform transform = new vtkTransform();
+            //transform.Translate(-curveCenter[0], -curveCenter[1], -curveCenter[2]);
+            transform.RotateX(180);
+            transform.Translate(0, -2 * curveCenter[1], 0);
+            /*transform.RotateY(180);
+            transform.Translate( -2 * curveCenter[0], 0, 0);*/
+
+            vtkTransformPolyDataFilter polylineTransform = new vtkTransformPolyDataFilter();
+            polylineTransform.SetInputData(polyData);
+            polylineTransform.SetTransform(transform);
+            polylineTransform.Update();
+
+            vtkPolyData TransformedPolyline = polylineTransform.GetOutput();
+
+            curveCenter = TransformedPolyline.GetCenter();
+
+            return TransformedPolyline;
+        }
+
+        public vtkCleanPolyData getContours(vtkDICOMImageReader dicom)
+        {
+            vtkContourFilter contourFilter = vtkContourFilter.New();
+            contourFilter.SetInputConnection(dicom.GetOutputPort());
+            contourFilter.SetValue(0, dicom.GetOutput().GetScalarRange()[1] / 2.0); // Set the contour value
+
+            // Update the contour filter
+            contourFilter.Update();
+
+            // Get the output of the contour filter
+            vtkPolyData contours = contourFilter.GetOutput();
+
+            // Extract closed curve contours
+            vtkCleanPolyData cleanPolyData = vtkCleanPolyData.New();
+            cleanPolyData.SetInputData(contours);
+            cleanPolyData.SetConvertLinesToPoints(1);
+            cleanPolyData.SetConvertPolysToLines(1);
+            cleanPolyData.SetConvertStripsToPolys(1);
+            cleanPolyData.Update();
+
+            // Get the number of closed curve contours
+            long numberOfContours = cleanPolyData.GetOutput().GetNumberOfCells();
+            Console.WriteLine("Number of closed curve contours: " + numberOfContours);
+
+            int maxCell = cleanPolyData.GetOutput().GetMaxCellSize();
+
+            return cleanPolyData;
+        }
+
+        public int[] getPolydataRange(vtkPolyData polyData)
+        {
+            
+            var minXcurve = polyData.GetBounds()[0];
+            var maxXcurve = polyData.GetBounds()[1];
+            var minYcurve = polyData.GetBounds()[2];
+            var maxYcurve = polyData.GetBounds()[3];
+
+            //the region of interest (ROI)
+            int roiXcoord = (int)Math.Round(minXcurve);
+            int roiYCoord = (int)Math.Round(minYcurve);
+            int roiWidth = (int)Math.Round(maxXcurve);
+            int roiHeight = (int)Math.Round(maxYcurve);
+            int[] polyRange = { roiXcoord, roiYCoord, roiWidth, roiHeight };
+
+            return polyRange;
+        }
+
+        vtkImageData currentImage;
+        double[] imageCenter;
+        public void cropedDicomes()
+        {
+            vtkDICOMImageReader dicom = new vtkDICOMImageReader();
+            dicom.SetDirectoryName(@"D:\DicomImages\A990410-BREAST\Study_1");
+            dicom.Update();
+
+            
+
+            _ImageViewer = new vtkImageViewer2();
+            _ImageViewer.SetInputData(dicom.GetOutput());
+            _ImageViewer.GetSliceRange(ref _MinSlice, ref _MaxSlice);
+
+            _ImageViewer.SetRenderWindow(vRWC.RenderWindow);
+            _ImageViewer.SetSlice(_MinSlice);
+            currentImage = _ImageViewer.GetInput();
+            
+            
+            _ImageViewer.GetRenderer().AddActor(sliceCurve(_Slice, currentImage));
+            //int temp = getNumberOfSkin(currentImage);
+            _ImageViewer.Render();
+            currentImage.Dispose();
+        }
+        private void nextSlice() 
+        {
+            if (_Slice < _MaxSlice)
+            {
+                _Slice += 1;
+                
+                _ImageViewer.SetSlice(_Slice);
+                currentImage = _ImageViewer.GetInput();
+                _ImageViewer.GetRenderer().AddActor(sliceCurve(_Slice, currentImage));
+                _ImageViewer.Render();
+                currentImage.Dispose();
+            }
+        }
+        private void previousSlice() 
+        {
+            if (_Slice > _MinSlice)
+            {
+                _Slice -= 1;
+                _ImageViewer.SetSlice(_Slice);
+                currentImage = _ImageViewer.GetInput();
+                _ImageViewer.GetRenderer().AddActor(sliceCurve(_Slice, currentImage));
+                _ImageViewer.Render();
+                currentImage.Dispose();
+            }
+        }
+
+        private vtkActor sliceCurve(int slice, vtkImageData currentImage)
+        {
+            imageCenter = currentImage.GetCenter();
+            vtkPolyData curveData = RtStructCountor(imageCenter, slice);
+
+            vtkPolyDataMapper curveMapper = new vtkPolyDataMapper();
+            curveMapper.SetInputData(curveData);
+
+            vtkActor curveActor = new vtkActor();
+            curveActor.SetMapper(curveMapper);
+
+            return curveActor;
+        }
+
+        private int getNumberOfSkin(vtkImageData imageData)
+        {
+            int numberOfSkin = 0;
+            //string imageName = imageData;
+            return numberOfSkin;
+        }
 
         //-------------------------Test Area-------------------
         vtkImageViewer2 _ImageViewer;
@@ -414,8 +713,8 @@ namespace test4
         {
             if (e.Key == Key.Down)
             {
-                MoveBackwardSlice();
-                
+                //MoveBackwardSlice();
+                previousSlice();
             }
         }
 
@@ -423,7 +722,8 @@ namespace test4
         {
             if (e.Key == Key.Up)
             {
-                MoveForwardSlice();
+                //MoveForwardSlice();
+                nextSlice();
             }
         }
         /// <summary>
